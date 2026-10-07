@@ -3,338 +3,164 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>HAND FX</title>
+<title>Liquid Frame</title>
 <style>
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
 *{box-sizing:border-box}
 video{display:none}
 canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
-#normal{z-index:1}
-#fx{z-index:2;visibility:hidden;pointer-events:none}
-#hint{position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);
-padding:11px 18px;border:1px solid rgba(255,255,255,.25);background:rgba(0,0,0,.62);
-color:#fff;font:10px monospace;letter-spacing:.16em;cursor:pointer}
-#hint.off{display:none}
-#dot{position:fixed;z-index:6;top:12px;right:12px;width:5px;height:5px;border-radius:50%;background:#555}
-#dot.on{background:#fff;box-shadow:0 0 9px #fff}
+#start{
+ position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+ z-index:5;padding:13px 23px;border:1px solid #ffffff55;
+ background:#050505bb;color:#fff;font:10px monospace;letter-spacing:.18em;
+ backdrop-filter:blur(12px);border-radius:2px
+}
+#start.hidden{display:none}
 </style>
 </head>
 <body>
 <video id="cam" autoplay playsinline muted></video>
-<canvas id="normal"></canvas>
-<canvas id="fx"></canvas>
-<button id="hint">START</button>
-<div id="dot"></div>
-
+<canvas id="view"></canvas>
+<button id="start">START</button>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 <script>
-"use strict";
+const cam=document.getElementById('cam');
+const view=document.getElementById('view');
+const start=document.getElementById('start');
+const ctx=view.getContext('2d',{alpha:false});
+const effect=document.createElement('canvas');
+const ectx=effect.getContext('2d',{willReadFrequently:true});
+let W=innerWidth,H=innerHeight,D=Math.min(devicePixelRatio||1,1.5);
+let detected=null,smooth=null,ready=false,t=0,last=performance.now(),processing=false;
 
-/* ---------- basic state ---------- */
-const cam=document.getElementById("cam");
-const normal=document.getElementById("normal");
-const fx=document.getElementById("fx");
-const nctx=normal.getContext("2d",{alpha:false});
-const start=document.getElementById("hint");
-const dot=document.getElementById("dot");
-
-let SW=innerWidth,SH=innerHeight,DPR=Math.min(devicePixelRatio||1,1.5);
-let points=null,smooth=null;
-let cameraReady=false,tracking=false;
-let lastHandSend=0;
-let effectTime=0;
-let videoW=0,videoH=0;
-
-/* ---------- canvas ---------- */
 function size(){
-  SW=innerWidth;SH=innerHeight;DPR=Math.min(devicePixelRatio||1,1.5);
-  for(const c of [normal,fx]){
-    c.width=Math.round(SW*DPR);
-    c.height=Math.round(SH*DPR);
-    c.style.width=SW+"px";
-    c.style.height=SH+"px";
-  }
+ W=innerWidth;H=innerHeight;D=Math.min(devicePixelRatio||1,1.5);
+ view.width=W*D;view.height=H*D;
+ ctx.setTransform(D,0,0,D,0,0);
+ effect.width=Math.max(480,Math.floor(W*.55));
+ effect.height=Math.max(320,Math.floor(H*.55));
 }
-addEventListener("resize",size);
-size();
+size();addEventListener('resize',size);
 
-/* ---------- WEBGL ---------- */
-const gl=fx.getContext("webgl",{
-  alpha:true,antialias:false,premultipliedAlpha:false,
-  powerPreference:"high-performance"
-});
-if(!gl) alert("WebGL non disponibile.");
-
-const vs=`
-attribute vec2 p;
-varying vec2 uv;
-void main(){uv=(p+1.0)*.5;gl_Position=vec4(p,0.,1.);}
-`;
-
-const fs=`
-precision highp float;
-varying vec2 uv;
-uniform sampler2D tex;
-uniform float time;
-uniform vec2 res;
-
-float hash(vec2 p){
- p=fract(p*vec2(127.1,311.7));
- p+=dot(p,p+19.19);
- return fract(p.x*p.y);
+function mirrorDraw(c,x,y,w,h){
+ c.save();c.translate(w,0);c.scale(-1,1);c.drawImage(cam,0,0,w,h);c.restore();
 }
-float noise(vec2 p){
- vec2 i=floor(p),f=fract(p);
- f=f*f*(3.-2.*f);
- return mix(mix(hash(i),hash(i+vec2(1.,0.)),f.x),
-            mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),f.y);
-}
-float fbm(vec2 p){
- float v=0.,a=.5;
- for(int i=0;i<4;i++){v+=noise(p)*a;p=p*2.03+7.;a*=.5;}
- return v;
-}
-vec3 hsv(vec3 c){
- float mx=max(c.r,max(c.g,c.b)),mn=min(c.r,min(c.g,c.b));
- float d=mx-mn,h=0.;
- if(d>.0001){
-  if(mx==c.r)h=mod((c.g-c.b)/d,6.);
-  else if(mx==c.g)h=(c.b-c.r)/d+2.;
-  else h=(c.r-c.g)/d+4.;
-  h/=6.;
- }
- return vec3(h,d/(mx+.0001),mx);
-}
-vec3 rgb(vec3 c){
- vec3 p=abs(fract(c.xxx+vec3(0.,1./3.,2./3.))*6.-3.);
- return c.z*mix(vec3(1.),clamp(p-1.,0.,1.),c.y);
-}
-void main(){
- /* mirror = exactly the same orientation as the normal camera */
- vec2 q=vec2(1.-uv.x,uv.y);
- vec2 asp=vec2(res.x/res.y,1.);
- vec2 p=q*asp;
-
- float a=fbm(p*3.0+vec2(time*.16,-time*.10));
- float b=fbm(p*6.5+vec2(-time*.18,time*.13));
-
- /* stretched liquid movement */
- float bands=sin(p.y*17.0+a*8.0+time*1.8);
- float melt=sin(p.y*5.2-b*5.0-time*.7);
- vec2 d;
- d.x=bands*.035+melt*.018+(a-.5)*.035;
- d.y=sin(p.x*8.0+b*5.0-time)*.012+(b-.5)*.015;
-
- float chroma=.014+abs(bands)*.011;
-
- vec3 c;
- c.r=texture2D(tex,q+d+vec2(chroma,0.)).r;
- c.g=texture2D(tex,q+d).g;
- c.b=texture2D(tex,q+d-vec2(chroma,0.)).b;
-
- /* reference-like posterized psychedelic processing */
- c=pow(max(c,0.),vec3(.80));
- c=floor(c*6.0)/6.0;
-
- vec3 h=hsv(c);
- h.x=fract(h.x+.11*a+.025*sin(time*.7));
- h.y=min(1.,h.y*1.9+.10);
- h.z=min(1.,h.z*1.08);
- c=rgb(h);
-
- /* colored contour */
- float edge=abs(bands);
- c+=vec3(.10*edge,.035*(1.-edge),.10*(1.-edge));
-
- gl_FragColor=vec4(c,1.);
-}
-`;
-
-function makeShader(type,src){
- const s=gl.createShader(type);
- gl.shaderSource(s,src);gl.compileShader(s);
- if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));
- return s;
-}
-const program=gl.createProgram();
-gl.attachShader(program,makeShader(gl.VERTEX_SHADER,vs));
-gl.attachShader(program,makeShader(gl.FRAGMENT_SHADER,fs));
-gl.linkProgram(program);
-if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program));
-gl.useProgram(program);
-
-const quad=gl.createBuffer();
-gl.bindBuffer(gl.ARRAY_BUFFER,quad);
-gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
-const loc=gl.getAttribLocation(program,"p");
-gl.enableVertexAttribArray(loc);
-gl.vertexAttribPointer(loc,2,gl.FLOAT,false,0,0);
-
-const tex=gl.createTexture();
-gl.bindTexture(gl.TEXTURE_2D,tex);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
-gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-const uTex=gl.getUniformLocation(program,"tex");
-const uTime=gl.getUniformLocation(program,"time");
-const uRes=gl.getUniformLocation(program,"res");
-
-/* ---------- normal camera ---------- */
-function drawNormal(){
- if(cam.readyState<2)return;
- /*
-  cover, like a normal full-screen phone camera.
-  Both canvases use exactly this same crop.
- */
- const scale=Math.max(SW/cam.videoWidth,SH/cam.videoHeight);
- const dw=cam.videoWidth*scale,dh=cam.videoHeight*scale;
- const x=(SW-dw)/2,y=(SH-dh)/2;
-
- nctx.setTransform(DPR,0,0,DPR,0,0);
- nctx.clearRect(0,0,SW,SH);
- nctx.save();
- nctx.translate(SW,0);
- nctx.scale(-1,1);
- nctx.drawImage(cam,x,y,dw,dh);
- nctx.restore();
-}
-
-/* ---------- convert MediaPipe point to the displayed cover camera ---------- */
-function point(l){
- const scale=Math.max(SW/cam.videoWidth,SH/cam.videoHeight);
- const dw=cam.videoWidth*scale,dh=cam.videoHeight*scale;
- const x=(SW-dw)/2 + l.x*dw;
- const y=(SH-dh)/2 + l.y*dh;
- return {x:SW-x,y};
-}
-function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
-function sort4(a){
+function P(l){return{x:(1-l.x)*W,y:l.y*H}}
+function d(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function order(a){
  const cx=a.reduce((s,p)=>s+p.x,0)/4,cy=a.reduce((s,p)=>s+p.y,0)/4;
- return a.slice().sort((u,v)=>Math.atan2(u.y-cy,u.x-cx)-Math.atan2(v.y-cy,v.x-cx));
+ return a.slice().sort((u,v)=>Math.atan2(u.y-cy,u.x-cx)-Math.atan2(v.y-cy,v.x-cx))
 }
-function area(a){
- let z=0;
- for(let i=0;i<4;i++){let q=a[(i+1)%4];z+=a[i].x*q.y-q.x*a[i].y}
- return Math.abs(z)/2;
+function area(a){let z=0;for(let i=0;i<4;i++){let q=a[(i+1)%4];z+=a[i].x*q.y-q.x*a[i].y}return Math.abs(z)/2}
+function smoothQ(q){
+ if(!q)return null;
+ if(!smooth){smooth=q.map(p=>({...p}));return smooth}
+ const k=.38;
+ for(let i=0;i<4;i++){smooth[i].x+=(q[i].x-smooth[i].x)*k;smooth[i].y+=(q[i].y-smooth[i].y)*k}
+ return smooth;
 }
 
-/* ---------- hand tracker ---------- */
-const hands=new Hands({
- locateFile:f=>"https://cdn.jsdelivr.net/npm/@mediapipe/hands/"+f
-});
-hands.setOptions({
- maxNumHands:2,
- modelComplexity:1,
- minDetectionConfidence:.70,
- minTrackingConfidence:.65
-});
+const hands=new Hands({locateFile:f=>'https://cdn.jsdelivr.net/npm/@mediapipe/hands/'+f});
+hands.setOptions({maxNumHands:2,modelComplexity:1,minDetectionConfidence:.70,minTrackingConfidence:.65});
 hands.onResults(r=>{
- const list=r.multiHandLandmarks||[];
- tracking=list.length===2;
- if(!tracking){points=null;return}
-
- const h=list.slice(0,2).map(x=>({
-   center:point(x[9]),
-   thumb:point(x[4]),
-   index:point(x[8])
- }));
- h.sort((a,b)=>a.center.x-b.center.x);
-
- const L=h[0],R=h[1];
- const gap=Math.min(SW,SH)*.022;
- if(dist(L.thumb,L.index)<gap||dist(R.thumb,R.index)<gap){
-   points=null;return;
- }
-
- const q=sort4([L.thumb,L.index,R.index,R.thumb]);
+ const hs=r.multiHandLandmarks||[];
+ if(hs.length!==2){detected=null;return}
+ const a=hs.map(h=>({c:P(h[9]),a:P(h[4]),b:P(h[8])})).sort((x,y)=>x.c.x-y.c.x);
+ const L=a[0],R=a[1],min=Math.max(22,Math.min(W,H)*.025);
+ if(d(L.a,L.b)<min||d(R.a,R.b)<min){detected=null;return}
+ const q=order([L.a,L.b,R.b,R.a]);
  const ar=area(q);
- if(ar<SW*SH*.012||ar>SW*SH*.70){points=null;return}
- points=q;
+ if(ar<W*H*.02||ar>W*H*.65){detected=null;return}
+ detected=q;
 });
 
-/* ---------- tracking loop: explicit and reliable, no Camera helper ---------- */
-async function trackingLoop(now){
- if(cameraReady && cam.readyState>=2 && now-lastHandSend>55){
-   lastHandSend=now;
-   try{await hands.send({image:cam});}catch(e){console.warn(e)}
- }
- requestAnimationFrame(trackingLoop);
+async function track(){
+ if(!ready)return;
+ if(processing)return;
+ processing=true;
+ try{await hands.send({image:cam})}catch(e){}
+ processing=false;
 }
 
-/* ---------- render ---------- */
-function render(now){
- requestAnimationFrame(render);
- if(!cameraReady)return;
+function liquidImage(){
+ const ew=effect.width,eh=effect.height;
+ ectx.setTransform(1,0,0,1,0,0);
+ ectx.clearRect(0,0,ew,eh);
+ // mirrored camera at reduced resolution
+ ectx.save();ectx.translate(ew,0);ectx.scale(-1,1);ectx.drawImage(cam,0,0,ew,eh);ectx.restore();
 
- effectTime=now*.001;
- drawNormal();
-
- gl.viewport(0,0,fx.width,fx.height);
- gl.clearColor(0,0,0,0);
- gl.clear(gl.COLOR_BUFFER_BIT);
- gl.useProgram(program);
-
- gl.activeTexture(gl.TEXTURE0);
- gl.bindTexture(gl.TEXTURE_2D,tex);
- gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
- gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,cam);
-
- gl.uniform1i(uTex,0);
- gl.uniform1f(uTime,effectTime);
- gl.uniform2f(uRes,SW,SH);
- gl.drawArrays(gl.TRIANGLES,0,6);
-
- let q=points;
- if(q){
-   if(!smooth)smooth=q.map(p=>({...p}));
-   const k=.42;
-   for(let i=0;i<4;i++){
-     smooth[i].x+=(q[i].x-smooth[i].x)*k;
-     smooth[i].y+=(q[i].y-smooth[i].y)*k;
+ const img=ectx.getImageData(0,0,ew,eh), px=img.data;
+ // Strong but compact processing: displacement is created by sampling neighboring rows.
+ // It mimics the reference's melted horizontal bands without a full-screen CPU effect.
+ const copy=new Uint8ClampedArray(px);
+ const tt=t;
+ for(let y=0;y<eh;y++){
+   const yn=y/eh;
+   const wave=Math.sin(yn*19+tt*2.0)+.55*Math.sin(yn*43-tt*1.35);
+   const shift=Math.round(wave*7);
+   for(let x=0;x<ew;x++){
+     let sx=x+shift+Math.round(Math.sin((x/ew)*10+tt)*3);
+     if(sx<0)sx=0;if(sx>=ew)sx=ew-1;
+     const si=(y*ew+sx)*4, i=(y*ew+x)*4;
+     let r=copy[si],g=copy[si+1],b=copy[si+2];
+     // posterize + hue-like channel exchange
+     r=Math.round(r/32)*32;g=Math.round(g/32)*32;b=Math.round(b/32)*32;
+     const chroma=Math.round((Math.sin(yn*30+tt*2.8)+1)*4);
+     px[i]=Math.min(255,Math.max(0,r+chroma));
+     px[i+1]=Math.min(255,Math.max(0,g+Math.round((1-Math.sin(yn*18+tt))*8)));
+     px[i+2]=Math.min(255,Math.max(0,b+12+Math.round(Math.sin(x/ew*16-tt)*6)));
    }
-   const poly=smooth.map(p=>(p.x/SW*100).toFixed(3)+"% "+(p.y/SH*100).toFixed(3)+"%");
-   const clip="polygon("+poly.join(",")+")";
-   fx.style.clipPath=clip;
-   fx.style.webkitClipPath=clip;
-   fx.style.visibility="visible";
-   dot.classList.add("on");
+ }
+ ectx.putImageData(img,0,0);
+}
+
+function frame(now){
+ requestAnimationFrame(frame);
+ if(!ready)return;
+ const dt=Math.min(.05,(now-last)/1000);last=now;t+=dt;
+ // untouched camera outside the hand window
+ ctx.setTransform(D,0,0,D,0,0);
+ ctx.clearRect(0,0,W,H);
+ ctx.save();ctx.translate(W,0);ctx.scale(-1,1);ctx.drawImage(cam,0,0,W,H);ctx.restore();
+
+ const q=smoothQ(detected);
+ if(q){
+   liquidImage();
+   ctx.save();
+   ctx.beginPath();ctx.moveTo(q[0].x,q[0].y);
+   for(let i=1;i<4;i++)ctx.lineTo(q[i].x,q[i].y);
+   ctx.closePath();ctx.clip();
+
+   // draw the transformed image ONLY inside the four-finger surface
+   ctx.globalCompositeOperation='source-over';
+   ctx.drawImage(effect,0,0,W,H);
+
+   // thin chromatic edge like the reference, not a UI frame
+   ctx.globalCompositeOperation='screen';
+   ctx.lineWidth=1.2;
+   ctx.strokeStyle='rgba(255,0,160,.42)';
+   ctx.stroke();
+   ctx.restore();
  }else{
    smooth=null;
-   fx.style.visibility="hidden";
-   fx.style.clipPath="none";
-   fx.style.webkitClipPath="none";
-   dot.classList.remove("on");
  }
 }
+requestAnimationFrame(frame);
 
-/* ---------- start ---------- */
-async function activate(){
+async function startCamera(){
  try{
-   start.textContent="...";
    const stream=await navigator.mediaDevices.getUserMedia({
-     audio:false,
-     video:{
-       facingMode:"user",
-       width:{ideal:1280},
-       height:{ideal:720},
-       frameRate:{ideal:30,max:30}
-     }
+     audio:false,video:{facingMode:'user',width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30,max:60}}
    });
-   cam.srcObject=stream;
-   await cam.play();
-   videoW=cam.videoWidth;videoH=cam.videoHeight;
-   cameraReady=true;
-   start.classList.add("off");
-   requestAnimationFrame(trackingLoop);
-   requestAnimationFrame(render);
+   cam.srcObject=stream;await cam.play();
+   ready=true;start.classList.add('hidden');
+   setInterval(track,60);
  }catch(e){
    console.error(e);
-   start.textContent="RETRY";
-   alert("La fotocamera non è disponibile. Controlla il permesso della fotocamera per questo sito.");
+   start.textContent='ALLOW CAMERA';
  }
 }
-start.addEventListener("click",activate);
+start.onclick=startCamera;
 </script>
 </body>
 </html>
