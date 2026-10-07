@@ -1,93 +1,369 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>JARVIS - Meta License Test</title>
-    <style>
-        body {
-            background: #05080d;
-            color: #00eaff;
-            font-family: Arial, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            margin: 0;
-            text-align: center;
-        }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover">
+<title>VISUAL WORKSTATION</title>
+<style>
+:root{
+  --bg:#08090b;
+  --panel:rgba(19,21,25,.72);
+  --line:rgba(255,255,255,.14);
+  --text:#e9edf2;
+  --muted:#7e858f;
+  --accent:#7b61ff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050608;color:var(--text);font-family:Inter,Arial,sans-serif}
+body{user-select:none}
+button,input{font:inherit}
 
-        button {
-            background: transparent;
-            border: 1px solid #00eaff;
-            color: #00eaff;
-            padding: 15px 25px;
-            border-radius: 8px;
-            font-size: 16px;
-            cursor: pointer;
-            margin-top: 20px;
-        }
+/* WORKSPACE */
+#app{position:fixed;inset:0;background:
+ radial-gradient(circle at 50% 44%,rgba(80,88,105,.11),transparent 38%),
+ linear-gradient(180deg,#090a0d 0%,#050608 100%);
+}
+.topbar{
+ height:34px;border-bottom:1px solid rgba(255,255,255,.1);
+ display:flex;align-items:center;gap:9px;padding:0 10px;
+ background:rgba(9,10,12,.94);font-size:10px;color:#8c929b
+}
+.dot{width:7px;height:7px;border-radius:50%;background:#555}
+.topbar .green{background:#4b9b6c}
+.topbar .title{margin-left:7px;letter-spacing:.08em;color:#bfc4cb}
+.spacer{flex:1}
+.status{padding:4px 7px;border:1px solid #25282d;border-radius:3px}
 
-        button:active {
-            transform: scale(0.97);
-        }
+/* MAIN STAGE */
+.stage{
+ position:absolute;left:0;right:0;top:34px;bottom:100px;
+ overflow:hidden;
+}
+.viewer{
+ position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+ width:min(72vw,900px);aspect-ratio:16/10;
+ background:#101216;border:1px solid rgba(255,255,255,.16);
+ box-shadow:0 18px 70px rgba(0,0,0,.55);
+ overflow:hidden;
+}
+#video{width:100%;height:100%;object-fit:cover;background:#0c0d0f}
+#video.fx{filter:saturate(2.7) contrast(1.28) hue-rotate(18deg)}
+#video.fx2{filter:saturate(4.2) contrast(1.45) hue-rotate(55deg)}
+#video.fx3{filter:saturate(5.4) contrast(1.55) hue-rotate(110deg) invert(.05)}
+.glitch{
+ position:absolute;inset:0;pointer-events:none;opacity:0;
+ mix-blend-mode:screen;
+ background:
+  repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.06) 3px 4px),
+  linear-gradient(90deg,rgba(255,0,120,.12),transparent 35%,rgba(0,255,240,.13));
+}
+.glitch.on{opacity:1;animation:scan .12s steps(2) infinite}
+@keyframes scan{0%{transform:translate(0)}50%{transform:translate(-4px,2px)}100%{transform:translate(5px,-1px)}}
+.frame-info{
+ position:absolute;left:10px;top:8px;font:9px monospace;color:rgba(255,255,255,.7);
+ letter-spacing:.08em;text-shadow:0 1px 3px #000
+}
+.cross{position:absolute;width:18px;height:18px;right:10px;top:9px;opacity:.45}
+.cross:before,.cross:after{content:"";position:absolute;background:#fff}
+.cross:before{width:1px;height:100%;left:8px}.cross:after{height:1px;width:100%;top:8px}
 
-        #result {
-            margin-top: 25px;
-            max-width: 90%;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-    </style>
+/* FLOATING ASSETS */
+.assets{position:absolute;inset:0;pointer-events:none}
+.card{
+ position:absolute;width:74px;height:53px;border:1px solid rgba(255,255,255,.18);
+ background:rgba(12,13,16,.78);backdrop-filter:blur(9px);
+ box-shadow:0 8px 24px rgba(0,0,0,.45);
+ padding:4px;pointer-events:auto;cursor:pointer;
+ transition:transform .18s,border-color .18s;
+}
+.card:hover{transform:scale(1.08);border-color:rgba(255,255,255,.55)}
+.card img{width:100%;height:100%;object-fit:cover;display:block;filter:saturate(.8)}
+.card .tag{position:absolute;left:5px;bottom:4px;font:7px monospace;color:#fff;background:rgba(0,0,0,.58);padding:1px 3px}
+.c1{left:2.5%;top:12%}.c2{left:8%;top:30%}.c3{left:15%;top:16%}.c4{left:4%;top:59%}
+.c5{left:18%;top:68%}.c6{right:5%;top:16%}.c7{right:10%;top:36%}.c8{right:2.8%;top:57%}
+.c9{right:17%;top:69%}.c10{left:31%;top:9%}.c11{right:30%;top:10%}.c12{left:28%;top:77%}
+
+/* SIDE TOOL STRIP */
+.toolstrip{
+ position:absolute;right:12px;top:50%;transform:translateY(-50%);
+ width:28px;display:flex;flex-direction:column;gap:5px
+}
+.tool{
+ width:28px;height:28px;border:1px solid #252930;background:rgba(10,11,14,.75);
+ color:#9ba1aa;display:grid;place-items:center;font-size:11px;cursor:pointer
+}
+.tool.active{color:#fff;border-color:#666b75;background:#20232a}
+
+/* LEFT MINI CONTROL */
+.mini{
+ position:absolute;left:12px;bottom:12px;width:130px;
+ border:1px solid #24272c;background:rgba(9,10,12,.8);backdrop-filter:blur(12px);
+ padding:7px;color:#9299a3;font:8px monospace
+}
+.mini .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #191b20}
+.mini .row:last-child{border:0}
+
+/* TIMELINE */
+.timeline{
+ position:absolute;left:0;right:0;bottom:0;height:100px;
+ border-top:1px solid rgba(255,255,255,.12);background:#090a0c;
+}
+.tl-top{height:25px;display:flex;align-items:center;gap:8px;padding:0 10px;color:#7f8690;font:9px monospace}
+.play{width:20px;height:20px;border:1px solid #33373d;background:#111317;color:#ddd;cursor:pointer}
+.time{color:#c9cdd2}.track-area{position:absolute;left:0;right:0;top:25px;bottom:0;overflow:hidden}
+.ruler{
+ position:absolute;left:0;right:0;top:0;height:17px;
+ background:repeating-linear-gradient(90deg,transparent 0 49px,#2a2d32 49px 50px);
+ border-top:1px solid #191b20
+}
+.ruler span{font:7px monospace;color:#646a72;position:absolute;top:2px}
+.track{position:absolute;left:8px;right:8px;height:20px;border:1px solid #22262c;background:#111318}
+.track.video{top:25px}.track.fxtrack{top:49px}
+.clip{
+ height:100%;display:inline-block;width:14%;margin-right:1px;
+ background:linear-gradient(90deg,#242831,#343943);border-right:1px solid #111;
+ position:relative;overflow:hidden
+}
+.clip:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,rgba(255,0,120,.18),rgba(0,255,240,.16))}
+.fxclip{width:27%;background:linear-gradient(90deg,#321d58,#103f4b,#5b2c58)}
+.playhead{position:absolute;top:0;bottom:0;width:1px;background:#ff4d8d;left:41%;box-shadow:0 0 9px #ff4d8d}
+
+/* FILE LOADER */
+#loader{
+ position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+ width:min(420px,88vw);padding:25px;background:rgba(12,13,16,.96);
+ border:1px solid #30343b;box-shadow:0 30px 90px #000;z-index:20;text-align:center
+}
+#loader h1{font-size:13px;font-weight:500;letter-spacing:.18em;margin:0 0 8px}
+#loader p{font-size:10px;line-height:1.6;color:#858b94;margin:0 0 18px}
+#file{display:none}
+.loadbtn{
+ display:inline-block;padding:9px 15px;border:1px solid #555b65;color:#e9ebee;
+ background:#17191e;font-size:10px;cursor:pointer
+}
+.hint{margin-top:12px!important;font-size:8px!important;color:#5f646c!important}
+#loader.hidden{display:none}
+
+/* END CARD */
+.endcard{
+ position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.84);
+ opacity:0;pointer-events:none;transition:opacity .5s
+}
+.endcard.show{opacity:1}
+.endbox{text-align:center}
+.instagram{font-size:25px;margin-bottom:9px}
+.endbox div:last-child{font:8px monospace;letter-spacing:.18em;color:#aaa}
+
+/* MOBILE */
+@media(max-width:800px){
+ .viewer{width:86vw}
+ .card{width:62px;height:44px}
+ .c10,.c11,.c12{display:none}
+ .toolstrip{display:none}
+ .mini{display:none}
+}
+</style>
 </head>
-
 <body>
+<div id="app">
+  <div class="topbar">
+    <span class="dot"></span><span class="dot"></span><span class="dot green"></span>
+    <span class="title">VISUAL / WORKSPACE / 03</span>
+    <span class="spacer"></span>
+    <span class="status">LIVE PREVIEW</span>
+    <span class="status">24 FPS</span>
+  </div>
 
-    <h2>J.A.R.V.I.S.</h2>
-    <p>Test Meta License — Llama Vision</p>
+  <main class="stage">
+    <section class="viewer">
+      <video id="video" playsinline muted></video>
+      <div class="glitch" id="glitch"></div>
+      <div class="frame-info">FRAME <span id="frame">0000</span> · RGB / LIVE</div>
+      <div class="cross"></div>
+      <div class="endcard" id="endcard">
+        <div class="endbox"><div class="instagram">◎</div><div>VISUAL SYSTEM</div></div>
+      </div>
+    </section>
 
-    <button onclick="acceptMeta()">
-        ACCETTA META LICENSE
-    </button>
+    <div class="assets" id="assets"></div>
 
-    <div id="result"></div>
+    <div class="toolstrip">
+      <button class="tool active" data-fx="0">◉</button>
+      <button class="tool" data-fx="1">◌</button>
+      <button class="tool" data-fx="2">◇</button>
+      <button class="tool" data-fx="3">×</button>
+    </div>
 
-    <script>
-        async function acceptMeta() {
+    <div class="mini">
+      <div class="row"><span>MODE</span><b>LIVE</b></div>
+      <div class="row"><span>FILTER</span><b id="filterName">NORMAL</b></div>
+      <div class="row"><span>GAIN</span><b id="gain">1.00</b></div>
+      <div class="row"><span>SYNC</span><b>LOCKED</b></div>
+    </div>
+  </main>
 
-            const result = document.getElementById("result");
+  <section class="timeline">
+    <div class="tl-top">
+      <button class="play" id="play">▶</button>
+      <span class="time" id="time">00:00:00</span>
+      <span>·</span><span>SEQUENCE 01</span>
+      <span class="spacer"></span><span id="resolution">1280×830</span>
+    </div>
+    <div class="track-area">
+      <div class="ruler">
+        <span style="left:2%">00</span><span style="left:17%">02</span><span style="left:34%">04</span>
+        <span style="left:51%">06</span><span style="left:68%">08</span><span style="left:85%">10</span>
+      </div>
+      <div class="track video">
+        <span class="clip"></span><span class="clip"></span><span class="clip"></span>
+        <span class="clip"></span><span class="clip"></span><span class="clip"></span>
+      </div>
+      <div class="track fxtrack">
+        <span class="clip fxclip"></span><span class="clip fxclip"></span><span class="clip fxclip"></span>
+      </div>
+      <div class="playhead" id="playhead"></div>
+    </div>
+  </section>
 
-            result.textContent = "Invio richiesta...";
+  <div id="loader">
+    <h1>VISUAL WORKSPACE</h1>
+    <p>Carica il video del riferimento per usare la stessa scena come sorgente. L'interfaccia, le miniature, il filtro cromatico e la timeline vengono costruiti automaticamente.</p>
+    <label class="loadbtn" for="file">CARICA VIDEO</label>
+    <input id="file" type="file" accept="video/*">
+    <p class="hint">Puoi anche mettere un file chiamato <b>1000014209.mp4</b> nella stessa cartella dell'HTML.</p>
+  </div>
+</div>
 
-            try {
+<script>
+const video=document.getElementById('video');
+const file=document.getElementById('file');
+const loader=document.getElementById('loader');
+const glitch=document.getElementById('glitch');
+const endcard=document.getElementById('endcard');
+const frameEl=document.getElementById('frame');
+const timeEl=document.getElementById('time');
+const play=document.getElementById('play');
+const playhead=document.getElementById('playhead');
+const filterName=document.getElementById('filterName');
+const gain=document.getElementById('gain');
+const assets=document.getElementById('assets');
 
-                const response = await fetch(
-                    "https://iao-ai-v3.oceano-masoud.workers.dev/",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            action: "accept_meta_license"
-                        })
-                    }
-                );
+let objectURL=null, currentFX=0;
 
-                const data = await response.json();
+const names=['NORMAL','CHROMA','NEON','SPECTRUM'];
 
-                result.textContent =
-                    JSON.stringify(data, null, 2);
+function fmt(t){
+  const m=Math.floor(t/60),s=Math.floor(t%60),f=Math.floor((t%1)*30);
+  return String(m).padStart(2,'0')+':'+String(s).padStart(2,'0')+':'+String(f).padStart(2,'0');
+}
 
-            } catch (error) {
+function makeThumbs(){
+  assets.innerHTML='';
+  const positions=['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12'];
+  positions.forEach((p,i)=>{
+    const c=document.createElement('div');
+    c.className='card '+p;
+    const im=document.createElement('img');
+    im.alt='';
+    // abstract thumbnails until the browser can sample the loaded video
+    im.src=makeGradient(i);
+    const tag=document.createElement('span');
+    tag.className='tag'; tag.textContent='ASSET '+String(i+1).padStart(2,'0');
+    c.append(im,tag);
+    c.onclick=()=>{ if(video.duration) video.currentTime=(video.duration*(i+1)/14)%video.duration; };
+    assets.appendChild(c);
+  });
+}
+function makeGradient(i){
+  const hue=(i*37)%360;
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="160" height="110">
+  <defs><linearGradient id="g" x1="0" x2="1"><stop stop-color="hsl(${hue},80%,25%)"/><stop offset=".5" stop-color="hsl(${(hue+90)%360},90%,55%)"/><stop offset="1" stop-color="hsl(${(hue+190)%360},80%,20%)"/></linearGradient></defs>
+  <rect width="160" height="110" fill="#111"/><rect width="160" height="110" fill="url(#g)"/>
+  <circle cx="${30+i*9}" cy="55" r="30" fill="rgba(255,255,255,.18)"/></svg>`;
+  return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+}
 
-                result.textContent =
-                    "ERRORE:\n" + error.message;
+function useVideo(src){
+  video.src=src; video.load();
+  video.onloadedmetadata=()=>{
+    loader.classList.add('hidden');
+    document.getElementById('resolution').textContent=Math.round(video.videoWidth)+'×'+Math.round(video.videoHeight);
+    video.play().catch(()=>{});
+  };
+}
+file.addEventListener('change',()=>{
+  if(!file.files[0])return;
+  if(objectURL)URL.revokeObjectURL(objectURL);
+  objectURL=URL.createObjectURL(file.files[0]);
+  useVideo(objectURL);
+});
 
-            }
-        }
-    </script>
+// Try the reference filename automatically.
+fetch('1000014209.mp4',{method:'HEAD'}).then(r=>{
+  if(r.ok) useVideo('1000014209.mp4');
+}).catch(()=>{});
 
+play.onclick=()=>{
+  if(video.paused){video.play();play.textContent='❚❚'}
+  else{video.pause();play.textContent='▶'}
+};
+
+video.addEventListener('play',()=>play.textContent='❚❚');
+video.addEventListener('pause',()=>play.textContent='▶');
+
+video.addEventListener('timeupdate',()=>{
+  const p=video.duration?video.currentTime/video.duration:0;
+  timeEl.textContent=fmt(video.currentTime);
+  playhead.style.left=(p*100)+'%';
+  frameEl.textContent=String(Math.floor(video.currentTime*30)).padStart(4,'0');
+
+  // Reproduce the reference video's progressive visual transformation.
+  const t=video.currentTime;
+  if(currentFX===0){
+    if(t>0.7 && t<7.9){
+      const level=Math.min(1,(t-.7)/2.8);
+      video.style.filter=`saturate(${1+level*3.5}) contrast(${1+level*.48}) hue-rotate(${level*70}deg)`;
+      glitch.style.opacity=.06+level*.18;
+      gain.textContent=(1+level*1.8).toFixed(2);
+    }else{
+      video.style.filter='';
+      glitch.style.opacity=0;
+      gain.textContent='1.00';
+    }
+  }
+  if(t>8.1){endcard.classList.add('show')} else endcard.classList.remove('show');
+});
+
+document.querySelectorAll('.tool').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    currentFX=Number(btn.dataset.fx);
+    document.querySelectorAll('.tool').forEach(x=>x.classList.remove('active'));
+    btn.classList.add('active');
+    video.className='';
+    if(currentFX===1) video.classList.add('fx');
+    if(currentFX===2) video.classList.add('fx2');
+    if(currentFX===3) video.classList.add('fx3');
+    filterName.textContent=names[currentFX];
+    glitch.classList.toggle('on',currentFX>0);
+  });
+});
+
+// Dragging floating assets makes the workspace feel like the reference.
+let drag=null,ox=0,oy=0;
+document.addEventListener('pointerdown',e=>{
+  const card=e.target.closest('.card'); if(!card)return;
+  drag=card; const r=card.getBoundingClientRect();
+  ox=e.clientX-r.left;oy=e.clientY-r.top;card.setPointerCapture?.(e.pointerId);
+});
+document.addEventListener('pointermove',e=>{
+  if(!drag)return;
+  const s=document.querySelector('.stage').getBoundingClientRect();
+  drag.style.left=(e.clientX-s.left-ox)+'px';
+  drag.style.top=(e.clientY-s.top-oy)+'px';
+});
+document.addEventListener('pointerup',()=>drag=null);
+
+makeThumbs();
+</script>
 </body>
 </html>
