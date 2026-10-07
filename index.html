@@ -3,362 +3,513 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>HAND WINDOW — 4 POINT FX</title>
+<title>LIQUID WINDOW</title>
 <style>
 *{box-sizing:border-box}
-html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#050505;font-family:Arial,sans-serif}
-body{color:#fff}
-#stage{position:fixed;inset:0;background:#080909}
-canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
-#camera{display:none}
-#ui{position:fixed;inset:0;pointer-events:none}
-#top{
- position:absolute;left:18px;right:18px;top:16px;
- display:flex;align-items:center;gap:9px;
- font:10px monospace;letter-spacing:.12em;color:rgba(255,255,255,.7)
-}
-.pip{width:7px;height:7px;border-radius:50%;background:#ff355d;box-shadow:0 0 10px #ff355d}
-.pip.ok{background:#47ff9a;box-shadow:0 0 10px #47ff9a}
-#status{padding:5px 8px;border:1px solid rgba(255,255,255,.16);background:rgba(0,0,0,.28)}
-#hint{
- position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
- text-align:center;transition:.3s;pointer-events:none
-}
-#hint strong{display:block;font:500 17px monospace;letter-spacing:.12em}
-#hint span{display:block;margin-top:9px;font:10px monospace;color:#999;line-height:1.6}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+body{font-family:Arial,sans-serif}
+#video{display:none}
+#gl,#hud{position:fixed;inset:0;width:100%;height:100%}
+#hud{pointer-events:none}
 #start{
- pointer-events:auto;margin-top:17px;padding:10px 17px;
- background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.3);
- color:white;font:10px monospace;letter-spacing:.12em;cursor:pointer
+ position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);
+ padding:12px 22px;border:1px solid rgba(255,255,255,.3);
+ background:rgba(8,8,10,.72);backdrop-filter:blur(12px);
+ color:#fff;font:10px monospace;letter-spacing:.18em;cursor:pointer;
+ transition:.2s
 }
-#start:hover{background:rgba(255,255,255,.12)}
-#bottom{
- position:absolute;left:18px;right:18px;bottom:16px;
- display:flex;justify-content:space-between;align-items:end;
- font:9px monospace;color:rgba(255,255,255,.48)
+#start:hover{background:rgba(255,255,255,.12);transform:translate(-50%,-50%) scale(1.04)}
+#start.hide{opacity:0;pointer-events:none}
+#status{
+ position:fixed;top:14px;left:16px;width:6px;height:6px;border-radius:50%;
+ background:#555;box-shadow:none;opacity:.7
 }
-#debug{
- position:absolute;right:18px;top:50px;text-align:right;
- font:9px monospace;line-height:1.7;color:rgba(255,255,255,.42)
-}
-#flash{
- position:absolute;inset:0;background:white;opacity:0;mix-blend-mode:screen;pointer-events:none
-}
-.hidden{opacity:0!important}
+#status.on{background:#fff;box-shadow:0 0 12px rgba(255,255,255,.9)}
 </style>
 </head>
 <body>
-<div id="stage">
-  <video id="camera" autoplay playsinline muted></video>
-  <canvas id="canvas"></canvas>
-  <canvas id="fx" style="display:none"></canvas>
 
-  <div id="ui">
-    <div id="top">
-      <span class="pip" id="pip"></span>
-      <span id="status">CAMERA OFFLINE</span>
-      <span style="flex:1"></span>
-      <span>HAND WINDOW / 4 POINTS</span>
-    </div>
+<video id="video" autoplay playsinline muted></video>
+<canvas id="gl"></canvas>
+<canvas id="hud"></canvas>
+<button id="start">ACTIVATE</button>
+<div id="status"></div>
 
-    <div id="hint">
-      <strong>HAND WINDOW</strong>
-      <span>Apri entrambe le mani.<br>Metti indice + pollice di ogni mano davanti alla camera.</span>
-      <button id="start">ATTIVA CAMERA</button>
-    </div>
-
-    <div id="debug">
-      <div>HANDS: <b id="hands">0</b>/2</div>
-      <div>POINTS: <b id="points">0</b>/4</div>
-      <div>WINDOW: <b id="window">OFF</b></div>
-    </div>
-
-    <div id="bottom">
-      <span>INDEX / THUMB TRACKING</span>
-      <span id="fps">0 FPS</span>
-    </div>
-    <div id="flash"></div>
-  </div>
-</div>
-
-<!-- MediaPipe Hands -->
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
 
 <script>
-const video = document.getElementById('camera');
-const canvas = document.getElementById('canvas');
-const fxCanvas = document.getElementById('fx');
-const ctx = canvas.getContext('2d', {alpha:false});
-const fxCtx = fxCanvas.getContext('2d', {willReadFrequently:true});
-const startBtn = document.getElementById('start');
-const hint = document.getElementById('hint');
-const statusEl = document.getElementById('status');
-const pip = document.getElementById('pip');
-const handsEl = document.getElementById('hands');
-const pointsEl = document.getElementById('points');
-const windowEl = document.getElementById('window');
-const fpsEl = document.getElementById('fps');
-const flash = document.getElementById('flash');
+/* =========================================================
+   LIQUID WINDOW
+   - 2 hand tracking
+   - thumb + index on each hand = 4 point window
+   - GPU liquid/refraction shader
+   - no permanent UI text
+   ========================================================= */
 
-let camera = null;
-let running = false;
-let latestHands = [];
-let lastTime = performance.now();
-let frames = 0;
-let fps = 0;
-let effectPhase = 0;
-let lastGoodWindow = null;
-let flashLevel = 0;
+const video=document.getElementById('video');
+const canvas=document.getElementById('gl');
+const hud=document.getElementById('hud');
+const hctx=hud.getContext('2d');
+const start=document.getElementById('start');
+const status=document.getElementById('status');
+const gl=canvas.getContext('webgl',{
+  alpha:false,
+  antialias:true,
+  premultipliedAlpha:false,
+  powerPreference:'high-performance',
+  stencil:true
+}) || canvas.getContext('experimental-webgl');
 
+let W=1,H=1,dpr=1;
+let points=null;
+let handsCount=0;
+let active=false;
+let started=false;
+let smoothPoints=null;
+let lastFrame=performance.now();
+let frameCount=0;
+let fps=60;
+
+/* ---------------- RESIZE ---------------- */
 function resize(){
-  const dpr = Math.min(devicePixelRatio || 1, 2);
-  canvas.width = Math.floor(innerWidth*dpr);
-  canvas.height = Math.floor(innerHeight*dpr);
-  fxCanvas.width = canvas.width;
-  fxCanvas.height = canvas.height;
+  dpr=Math.min(devicePixelRatio||1,1.5);
+  W=Math.max(1,Math.floor(innerWidth*dpr));
+  H=Math.max(1,Math.floor(innerHeight*dpr));
+  canvas.width=W;canvas.height=H;
+  hud.width=W;hud.height=H;
+  gl.viewport(0,0,W,H);
 }
 addEventListener('resize',resize);
 resize();
 
-/*
-  MediaPipe gives normalized coordinates.
-  The camera is mirrored visually, so we mirror X as well.
-*/
-function point(lm){
-  return {
-    x:(1-lm.x)*canvas.width,
-    y:lm.y*canvas.height
-  };
+/* =========================================================
+   WEBGL
+   ========================================================= */
+
+const vertexSrc=`
+attribute vec2 a_pos;
+attribute vec2 a_uv;
+varying vec2 v_uv;
+void main(){
+  v_uv=a_uv;
+  gl_Position=vec4(a_pos,0.0,1.0);
+}`;
+
+const fragmentSrc=`
+precision highp float;
+varying vec2 v_uv;
+
+uniform sampler2D u_video;
+uniform float u_time;
+uniform float u_active;
+uniform vec2 u_resolution;
+
+/* Smooth pseudo-noise */
+float hash(vec2 p){
+  p=fract(p*vec2(123.34,456.21));
+  p+=dot(p,p+45.32);
+  return fract(p.x*p.y);
 }
-
-function distance(a,b){
-  return Math.hypot(a.x-b.x,a.y-b.y);
-}
-
-function handCenter(hand){
-  return point(hand[9]);
-}
-
-/* Return thumb tip (4) + index tip (8) for each hand. */
-function getFourPoints(results){
-  if(!results.multiHandLandmarks || results.multiHandLandmarks.length < 2) return null;
-
-  const hands = results.multiHandLandmarks.slice(0,2).map(h => ({
-    center:handCenter(h),
-    thumb:point(h[4]),
-    index:point(h[8])
-  }));
-
-  // Left/right in the displayed image.
-  hands.sort((a,b)=>a.center.x-b.center.x);
-
-  const L=hands[0], R=hands[1];
-
-  // Require the two fingers on each hand to be reasonably separated.
-  if(distance(L.thumb,L.index)<24 || distance(R.thumb,R.index)<24) return null;
-
-  return [L.thumb,L.index,R.index,R.thumb];
-}
-
-function convexOrder(points){
-  const cx=points.reduce((s,p)=>s+p.x,0)/points.length;
-  const cy=points.reduce((s,p)=>s+p.y,0)/points.length;
-  return [...points].sort((a,b)=>
-    Math.atan2(a.y-cy,a.x-cx)-Math.atan2(b.y-cy,b.x-cx)
+float noise(vec2 p){
+  vec2 i=floor(p),f=fract(p);
+  f=f*f*(3.0-2.0*f);
+  return mix(
+    mix(hash(i),hash(i+vec2(1.,0.)),f.x),
+    mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),f.x),
+    f.y
   );
 }
-
-function quadArea(p){
-  let a=0;
-  for(let i=0;i<p.length;i++){
-    const q=p[(i+1)%p.length];
-    a += p[i].x*q.y-q.x*p[i].y;
+float fbm(vec2 p){
+  float v=0.0;
+  float a=.5;
+  for(int i=0;i<4;i++){
+    v+=a*noise(p);
+    p=p*2.02+7.1;
+    a*=.5;
   }
-  return Math.abs(a)/2;
+  return v;
 }
 
-function drawNormal(){
+void main(){
+  vec2 uv=v_uv;
+  vec2 aspect=vec2(u_resolution.x/u_resolution.y,1.0);
+
+  /* liquid field */
+  float t=u_time;
+  vec2 p=uv*aspect;
+
+  float n1=fbm(p*3.2+vec2(t*.20,-t*.14));
+  float n2=fbm(p*5.0+vec2(-t*.15,t*.22));
+
+  vec2 flow=vec2(
+    sin((p.y+n1*2.0)*8.0+t*2.2),
+    cos((p.x+n2*2.0)*7.0-t*1.8)
+  );
+
+  vec2 swirl=vec2(n1-.5,n2-.5)*.055;
+  vec2 wave=flow*.018+swirl;
+
+  /* layered liquid currents: broad waves + small ripples */
+  vec2 ripple=vec2(
+    sin(p.y*18.0+t*2.8+n2*5.0),
+    cos(p.x*16.0-t*2.4+n1*5.0)
+  )*.006;
+  wave += ripple;
+
+  /* chromatic liquid refraction */
+  float rOff=.018;
+  vec3 col;
+  col.r=texture2D(u_video,uv+wave*(1.0+rOff)).r;
+  col.g=texture2D(u_video,uv+wave*.35).g;
+  col.b=texture2D(u_video,uv-wave*(1.0+rOff)).b;
+
+  /* spectral tint, but keep source recognizable */
+  float ir=n1*.5+n2*.5;
+  col.r+=ir*.12;
+  col.b+=(1.0-ir)*.15;
+  col=pow(max(col,0.0),vec3(.92));
+
+  /* subtle liquid light */
+  float shine=pow(max(0.0,1.0-length(wave)*11.0),3.0);
+  col+=shine*.075;
+
+  float liquidGlow=pow(max(0.0,sin((n1+n2+t*.12)*6.2831)*.5+.5),5.0);
+  col += vec3(.035,.012,.055)*liquidGlow;
+
+  /* Only this pass is rendered through the hand polygon. */
+  gl_FragColor=vec4(col,1.0);
+}`;
+
+function compile(type,src){
+  const s=gl.createShader(type);
+  gl.shaderSource(s,src);gl.compileShader(s);
+  if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+const prog=gl.createProgram();
+gl.attachShader(prog,compile(gl.VERTEX_SHADER,vertexSrc));
+gl.attachShader(prog,compile(gl.FRAGMENT_SHADER,fragmentSrc));
+gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS))
+  throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const quad=gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([
+  -1,-1,0,1, 1,-1,1,1, -1,1,0,0,
+  -1,1,0,0, 1,-1,1,1, 1,1,1,0
+]),gl.STATIC_DRAW);
+
+const aPos=gl.getAttribLocation(prog,'a_pos');
+const aUv=gl.getAttribLocation(prog,'a_uv');
+gl.enableVertexAttribArray(aPos);
+gl.enableVertexAttribArray(aUv);
+gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,16,0);
+gl.vertexAttribPointer(aUv,2,gl.FLOAT,false,16,8);
+
+const uVideo=gl.getUniformLocation(prog,'u_video');
+const uTime=gl.getUniformLocation(prog,'u_time');
+const uActive=gl.getUniformLocation(prog,'u_active');
+const uRes=gl.getUniformLocation(prog,'u_resolution');
+
+const texture=gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D,texture);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+
+/* ---------------- CAMERA IMAGE ---------------- */
+function updateTexture(){
   if(video.readyState<2)return;
-  ctx.save();
-  ctx.setTransform(1,0,0,1,0,0);
-  ctx.drawImage(video,0,0,canvas.width,canvas.height);
-  ctx.restore();
+  gl.bindTexture(gl.TEXTURE_2D,texture);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,video);
 }
 
-/*
-  This is the important part:
-  the psychedelic effect is drawn into a separate canvas,
-  then clipped to the quadrilateral made by the four fingertips.
-*/
-function drawEffect(poly){
-  const W=canvas.width,H=canvas.height;
+/* =========================================================
+   HANDS
+   ========================================================= */
 
-  // Source image.
-  fxCtx.setTransform(1,0,0,1,0,0);
-  fxCtx.globalCompositeOperation='source-over';
-  fxCtx.filter='none';
-  fxCtx.clearRect(0,0,W,H);
-
-  // Main image.
-  fxCtx.drawImage(video,0,0,W,H);
-
-  // Color transformation.
-  const image=fxCtx.getImageData(0,0,W,H);
-  const d=image.data;
-  const t=effectPhase;
-
-  // Process every 4th pixel block for performance.
-  // Strong posterized psychedelic look, similar to the reference.
-  for(let y=0;y<H;y+=2){
-    for(let x=0;x<W;x+=2){
-      const i=(y*W+x)*4;
-      const r=d[i],g=d[i+1],b=d[i+2];
-
-      const lum=(r*.299+g*.587+b*.114)/255;
-      const wave=Math.sin(x*.018 + y*.011 + t*4.0);
-      const wave2=Math.sin(y*.025 - t*3.2);
-      const band=Math.sin((lum*8.0)+t*2.2);
-
-      // psychedelic channel remap
-      const nr=Math.max(0,Math.min(255,
-        r*(.55+lum*.9) + (1+wave)*42 + band*34));
-      const ng=Math.max(0,Math.min(255,
-        g*(.35+lum*.8) + (1-wave2)*48 + wave*24));
-      const nb=Math.max(0,Math.min(255,
-        b*(.45+lum*.95) + (1+wave2)*58 + band*42));
-
-      d[i]=nr; d[i+1]=ng; d[i+2]=nb;
-      // Fill 2x2 block.
-      if(x+1<W){
-        d[i+4]=nr;d[i+5]=ng;d[i+6]=nb;
-      }
-      if(y+1<H){
-        const j=((y+1)*W+x)*4;
-        d[j]=nr;d[j+1]=ng;d[j+2]=nb;
-        if(x+1<W){d[j+4]=nr;d[j+5]=ng;d[j+6]=nb;}
-      }
-    }
-  }
-  fxCtx.putImageData(image,0,0);
-
-  // Draw only the transformed source inside the hand window.
-  const ordered=convexOrder(poly);
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(ordered[0].x,ordered[0].y);
-  for(let i=1;i<ordered.length;i++)ctx.lineTo(ordered[i].x,ordered[i].y);
-  ctx.closePath();
-  ctx.clip();
-
-  // Slight moving zoom makes the effect feel alive.
-  const zoom=1.025+Math.sin(t*2)*.008;
-  const sw=W/zoom, sh=H/zoom;
-  const sx=(W-sw)/2, sy=(H-sh)/2;
-  ctx.drawImage(fxCanvas,sx,sy,sw,sh,0,0,W,H);
-  ctx.restore();
-
-  // Neon border exactly follows the four fingertips.
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(ordered[0].x,ordered[0].y);
-  for(let i=1;i<ordered.length;i++)ctx.lineTo(ordered[i].x,ordered[i].y);
-  ctx.closePath();
-
-  ctx.shadowBlur=18;
-  ctx.shadowColor='rgba(255,20,190,.9)';
-  ctx.lineWidth=3;
-  ctx.strokeStyle='rgba(255,0,180,.9)';
-  ctx.stroke();
-
-  ctx.shadowBlur=8;
-  ctx.lineWidth=1;
-  ctx.strokeStyle='rgba(30,255,245,.95)';
-  ctx.stroke();
-  ctx.restore();
-
-  // Small bright points at the four corners.
-  for(const p of ordered){
-    ctx.beginPath();
-    ctx.arc(p.x,p.y,4,0,Math.PI*2);
-    ctx.fillStyle='white';
-    ctx.shadowBlur=12;
-    ctx.shadowColor='#ff2bd6';
-    ctx.fill();
-  }
-}
-
-function render(){
-  requestAnimationFrame(render);
-  if(!running || video.readyState<2)return;
-
-  drawNormal();
-
-  let poly=null;
-  if(latestHands.length>=2) poly=getFourPoints({multiHandLandmarks:latestHands});
-
-  if(poly){
-    const ordered=convexOrder(poly);
-    const area=quadArea(ordered);
-    const minArea=canvas.width*canvas.height*.025;
-    const maxArea=canvas.width*canvas.height*.75;
-
-    if(area>minArea && area<maxArea){
-      lastGoodWindow=ordered;
-      drawEffect(ordered);
-      pointsEl.textContent='4';
-      windowEl.textContent='ACTIVE';
-      windowEl.style.color='#ff52e5';
-      flashLevel=.03;
-    }else{
-      pointsEl.textContent='4';
-      windowEl.textContent='MOVE';
-    }
-  }else{
-    pointsEl.textContent=latestHands.length?String(Math.min(4,latestHands.length*2)):'0';
-    windowEl.textContent='OFF';
-    windowEl.style.color='';
-  }
-
-  effectPhase+=.018;
-  flashLevel*=.92;
-  flash.style.opacity=flashLevel;
-
-  frames++;
-  const now=performance.now();
-  if(now-lastTime>500){
-    fps=Math.round(frames*1000/(now-lastTime));
-    fpsEl.textContent=fps+' FPS';
-    frames=0;lastTime=now;
-  }
-}
-
-const hands = new Hands({
-  locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+const hands=new Hands({
+  locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
 });
-
 hands.setOptions({
   maxNumHands:2,
   modelComplexity:1,
-  minDetectionConfidence:.65,
-  minTrackingConfidence:.6
+  minDetectionConfidence:.68,
+  minTrackingConfidence:.62
 });
 
-hands.onResults(results=>{
-  latestHands=results.multiHandLandmarks || [];
-  handsEl.textContent=latestHands.length;
+hands.onResults(res=>{
+  handsCount=res.multiHandLandmarks?.length||0;
+
+  if(handsCount<2){
+    points=null;
+    return;
+  }
+
+  const hs=res.multiHandLandmarks.slice(0,2).map(h=>({
+    center:map(h[9]),
+    thumb:map(h[4]),
+    index:map(h[8])
+  }));
+
+  hs.sort((a,b)=>a.center.x-b.center.x);
+
+  const left=hs[0],right=hs[1];
+
+  /* Finger separation prevents accidental windows. */
+  if(dist(left.thumb,left.index)<24*dpr ||
+     dist(right.thumb,right.index)<24*dpr){
+    points=null;
+    return;
+  }
+
+  const p=[
+    left.thumb,left.index,
+    right.index,right.thumb
+  ];
+
+  const ordered=order(p);
+  const area=polygonArea(ordered);
+
+  /* sensible screen-space limits */
+  if(area<W*H*.012 || area>W*H*.72){
+    points=null;
+    return;
+  }
+
+  points=ordered;
 });
 
-async function start(){
-  startBtn.disabled=true;
-  startBtn.textContent='AVVIO...';
+/* Camera coordinate -> screen coordinate */
+function map(l){
+  return {
+    x:(1-l.x)*W,
+    y:l.y*H
+  };
+}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function order(p){
+  const cx=p.reduce((a,b)=>a+b.x,0)/p.length;
+  const cy=p.reduce((a,b)=>a+b.y,0)/p.length;
+  return [...p].sort((a,b)=>
+    Math.atan2(a.y-cy,a.x-cx)-Math.atan2(b.y-cy,b.x-cx)
+  );
+}
+function polygonArea(p){
+  let a=0;
+  for(let i=0;i<p.length;i++){
+    const q=p[(i+1)%p.length];
+    a+=p[i].x*q.y-q.x*p[i].y;
+  }
+  return Math.abs(a)*.5;
+}
 
+/* =========================================================
+   SMOOTHING
+   ========================================================= */
+function smooth(input){
+  if(!input)return null;
+  if(!smoothPoints){
+    smoothPoints=input.map(p=>({...p}));
+    return smoothPoints;
+  }
+
+  /* High responsiveness but no jitter. */
+  const k=.34;
+  for(let i=0;i<4;i++){
+    smoothPoints[i].x+=(input[i].x-smoothPoints[i].x)*k;
+    smoothPoints[i].y+=(input[i].y-smoothPoints[i].y)*k;
+  }
+  return smoothPoints;
+}
+
+/* =========================================================
+   LIQUID MASK
+   The WebGL pass is drawn only inside the hand polygon.
+   ========================================================= */
+
+function drawLiquid(p){
+  if(!p)return;
+
+  /* HUD canvas used as a precise alpha mask. */
+  hctx.clearRect(0,0,W,H);
+
+  hctx.save();
+  hctx.beginPath();
+  hctx.moveTo(p[0].x,p[0].y);
+  for(let i=1;i<p.length;i++)hctx.lineTo(p[i].x,p[i].y);
+  hctx.closePath();
+  hctx.clip();
+
+  /* We cannot directly use the 2D clip for WebGL, so create a
+     temporary alpha texture by switching to stencil below. */
+  hctx.restore();
+
+  /* WebGL stencil: polygon is the exact liquid window. */
+  gl.enable(gl.STENCIL_TEST);
+  gl.clearStencil(0);
+  gl.clear(gl.STENCIL_BUFFER_BIT);
+
+  gl.colorMask(false,false,false,false);
+  gl.stencilFunc(gl.ALWAYS,1,0xff);
+  gl.stencilOp(gl.KEEP,gl.KEEP,gl.REPLACE);
+
+  const ndc=p.map(q=>({
+    x:q.x/W*2-1,
+    y:1-q.y/H*2
+  }));
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+
+  /* draw polygon as triangle fan using a tiny temporary buffer */
+  const buf=gl.createBuffer();
+  const fan=[];
+  const c=ndc.reduce((a,b)=>({x:a.x+b.x/4,y:a.y+b.y/4}),{x:0,y:0});
+  fan.push(c.x,c.y);
+  for(const q of ndc)fan.push(q.x,q.y);
+  fan.push(ndc[0].x,ndc[0].y);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(fan),gl.STREAM_DRAW);
+  gl.disableVertexAttribArray(aUv);
+  gl.vertexAttrib2f(aUv,0,0);
+  gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+  gl.drawArrays(gl.TRIANGLE_FAN,0,fan.length/2);
+  gl.deleteBuffer(buf);
+
+  /* liquid pass */
+  gl.colorMask(true,true,true,true);
+  gl.stencilFunc(gl.EQUAL,1,0xff);
+  gl.stencilOp(gl.KEEP,gl.KEEP,gl.KEEP);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER,quad);
+  gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,16,0);
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aUv,2,gl.FLOAT,false,16,8);
+  gl.enableVertexAttribArray(aUv);
+
+  gl.uniform1f(uActive,1);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+
+  gl.disable(gl.STENCIL_TEST);
+}
+
+/* =========================================================
+   EDGE / HAND WINDOW
+   ========================================================= */
+function drawEdge(p,t){
+  if(!p)return;
+
+  hctx.clearRect(0,0,W,H);
+  hctx.save();
+
+  const pulse=.55+.45*Math.sin(t*3.5);
+
+  hctx.beginPath();
+  hctx.moveTo(p[0].x,p[0].y);
+  for(let i=1;i<p.length;i++)hctx.lineTo(p[i].x,p[i].y);
+  hctx.closePath();
+
+  hctx.shadowBlur=12*dpr;
+  hctx.shadowColor=`rgba(255,35,205,${.35+.25*pulse})`;
+  hctx.lineWidth=2*dpr;
+  hctx.strokeStyle=`rgba(255,255,255,${.55+.25*pulse})`;
+  hctx.stroke();
+
+  hctx.shadowBlur=18*dpr;
+  hctx.shadowColor='rgba(90,230,255,.75)';
+  hctx.lineWidth=.7*dpr;
+  hctx.strokeStyle='rgba(80,235,255,.85)';
+  hctx.stroke();
+
+  /* Corner particles */
+  for(const q of p){
+    hctx.beginPath();
+    hctx.arc(q.x,q.y,2.4*dpr,0,Math.PI*2);
+    hctx.fillStyle='white';
+    hctx.shadowBlur=10*dpr;
+    hctx.shadowColor='rgba(255,70,220,.9)';
+    hctx.fill();
+  }
+  hctx.restore();
+}
+
+/* =========================================================
+   RENDER
+   ========================================================= */
+let time=0;
+function render(now){
+  requestAnimationFrame(render);
+  if(!started || video.readyState<2)return;
+
+  const dt=Math.min(.05,(now-lastFrame)/1000);
+  lastFrame=now;
+  time+=dt;
+
+  updateTexture();
+
+  gl.viewport(0,0,W,H);
+  gl.clearColor(0,0,0,1);
+  gl.clear(gl.COLOR_BUFFER_BIT|gl.STENCIL_BUFFER_BIT);
+
+  gl.useProgram(prog);
+  gl.bindTexture(gl.TEXTURE_2D,texture);
+  gl.uniform1i(uVideo,0);
+  gl.uniform1f(uTime,time);
+  gl.uniform1f(uActive,0);
+  gl.uniform2f(uRes,W,H);
+
+  /* Base image */
+  gl.disable(gl.STENCIL_TEST);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+
+  const p=smooth(points);
+
+  if(p){
+    drawLiquid(p);
+    drawEdge(p,time);
+    active=true;
+  }else{
+    active=false;
+    /* Fade smoothing only after a short loss is handled naturally. */
+    smoothPoints=null;
+    hctx.clearRect(0,0,W,H);
+  }
+
+  if(active){
+    status.classList.add('on');
+  }else{
+    status.classList.remove('on');
+  }
+
+  frameCount++;
+  if(now-(render.lastFps||now)>700){
+    fps=Math.round(frameCount*1000/(now-(render.lastFps||now)));
+    frameCount=0;
+    render.lastFps=now;
+  }
+}
+requestAnimationFrame(render);
+
+/* =========================================================
+   START
+   ========================================================= */
+async function startCamera(){
   try{
+    start.textContent='...';
+
     const stream=await navigator.mediaDevices.getUserMedia({
       video:{
         facingMode:'user',
         width:{ideal:1280},
-        height:{ideal:720}
+        height:{ideal:720},
+        frameRate:{ideal:30,max:60}
       },
       audio:false
     });
@@ -366,28 +517,23 @@ async function start(){
     video.srcObject=stream;
     await video.play();
 
-    camera = new Camera(video,{
-      onFrame:async()=>{ await hands.send({image:video}); },
+    const cam=new Camera(video,{
       width:1280,
-      height:720
+      height:720,
+      onFrame:async()=>hands.send({image:video})
     });
-    camera.start();
+    cam.start();
 
-    running=true;
-    hint.classList.add('hidden');
-    statusEl.textContent='CAMERA ONLINE';
-    pip.classList.add('ok');
-  }catch(err){
-    console.error(err);
-    startBtn.disabled=false;
-    startBtn.textContent='RIPROVA';
-    statusEl.textContent='ACCESSO CAMERA NEGATO';
-    alert('Per usare il sistema devi consentire l’accesso alla fotocamera. Apri l’HTML da localhost/HTTPS, non da un percorso file se il browser blocca la fotocamera.');
+    started=true;
+    start.classList.add('hide');
+    status.classList.add('on');
+  }catch(e){
+    console.error(e);
+    start.textContent='RETRY';
+    alert('Consenti l’accesso alla fotocamera. Se il browser blocca la fotocamera da file://, apri questo HTML tramite localhost o HTTPS.');
   }
 }
-
-startBtn.addEventListener('click',start);
-render();
+start.addEventListener('click',startCamera);
 </script>
 </body>
 </html>
